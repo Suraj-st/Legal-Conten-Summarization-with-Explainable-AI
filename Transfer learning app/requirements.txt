@@ -1,0 +1,13 @@
+streamlit
+transformers
+torch
+huggingface_hub
+nltk
+lime
+json
+html
+pandas
+numpy
+evaluate
+datasets
+optuna
