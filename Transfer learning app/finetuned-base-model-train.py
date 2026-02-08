@@ -5,7 +5,7 @@ from transformers  import (AutoTokenizer, AutoModelForSeq2SeqLM,
                            Seq2SeqTrainingArguments, Seq2SeqTrainer,
                            DataCollatorForSeq2Seq)
 
-raw_data   = load_dataset("json", data_files="legal_dataset_hf.json")["train"]
+raw_data   = load_dataset("json", data_files="legal_dataset_hf_src.json")["train"]
 dataset    = raw_data.train_test_split(test_size=0.1)
 
 model_name = "facebook/bart-base"      # ← smaller, fits 8 GB GPU easily
@@ -69,4 +69,5 @@ print(f"🏆 Best checkpoint: {best_ckpt}")
 # Save final artefacts
 model.save_pretrained("legal-summarizer-final")
 tokenizer.save_pretrained("legal-summarizer-final")
+
 print("✅ Model + tokenizer saved → legal-summarizer-final/")
