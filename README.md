@@ -1,5 +1,5 @@
 # Legal-Conten-Summarization-with-Explainable-AI
-Legal Conten Summarization with Explainable AI
+Legal Conten Summarization and conver to with Explainable AI
 
 ## How to Run the Transfer Learning Application
 
