@@ -8,7 +8,7 @@ Legal Conten Summarization and conver to with Explainable AI
 3. Activate the Python virtual environment
 4. run the requirements.txt file
 5. First Run the data_ext_src.py file. It will create a proper dataset to train the model.
-6. The data_ext_src.py script will create legal_dataset_hf_src.json file
+6. The data_ext_src.py script will create legal_dataset_hf.json file
 7. Then run the finetuned-base-model-train.py file to train the model using the prepared data.
 8. The finetuned-base-model-train.py will generate legal-summarizer-final model with best checkpoint.
 9. Then run the xai_app_upd.py file to start the application. (streamlit run xai_app_upd.py)
