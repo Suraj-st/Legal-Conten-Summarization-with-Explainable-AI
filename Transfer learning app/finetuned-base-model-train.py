@@ -69,4 +69,6 @@ print(f"🏆 Best checkpoint: {best_ckpt}")
 # Save final artefacts
 model.save_pretrained("legal-summarizer-final")
 tokenizer.save_pretrained("legal-summarizer-final")
+
 print("✅ Model + tokenizer saved → legal-summarizer-final/")
+
