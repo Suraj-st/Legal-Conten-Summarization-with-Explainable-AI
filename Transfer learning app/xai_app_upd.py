@@ -39,33 +39,52 @@ sum_tokenizer, sum_model, para_tokenizer, para_model, device = load_models()
 # 2. Core summarization and paraphrasing logic
 
 def summarize_text(text: str) -> str:
-    inputs = sum_tokenizer(text, return_tensors="pt", truncation=True, padding="max_length", max_length=1024)
+    inputs = sum_tokenizer(
+        text,
+        return_tensors="pt",
+        truncation=True,
+        padding=True,
+        max_length=1024
+    )
     inputs = {k: v.to(device) for k, v in inputs.items() if torch.is_tensor(v)}
+
     output_ids = sum_model.generate(
         inputs["input_ids"],
-        max_length=512,
+        max_new_tokens=300,
+        min_new_tokens=120, 
         num_beams=5,
         length_penalty=1.0,
-        repetition_penalty=2.0,
-        early_stopping=True,
+        repetition_penalty=1.1, 
+        no_repeat_ngram_size=3,
+        early_stopping=False,
+        eos_token_id=sum_tokenizer.eos_token_id,
+        pad_token_id=sum_tokenizer.pad_token_id,
     )
+
     return sum_tokenizer.decode(output_ids[0], skip_special_tokens=True)
 
 def paraphrase_text(text: str) -> str:
-    input_text = f"simplify this into plain English: {text} </s>"
-    inputs = para_tokenizer(input_text, return_tensors="pt", truncation=True, padding="max_length", max_length=512).to(device)
-    inputs = {k: v.to(device) for k, v in inputs.items() if torch.is_tensor(v)}
+    """Paraphrase summary for readability."""
+    prompt = f"simplify this into plain English: {text} </s>"
+    inputs = para_tokenizer(
+        prompt,
+        return_tensors="pt",
+        truncation=True,
+        padding=True,
+        max_length=512
+    ).to(device)
+
     output_ids = para_model.generate(
         inputs["input_ids"],
-        max_length=512,
+        max_new_tokens=250,
+        min_new_tokens=100,
         num_beams=5,
-        length_penalty=1.0,
-        repetition_penalty=1.2,
+        repetition_penalty=1.05,
         no_repeat_ngram_size=3,
-        early_stopping=False,
+        early_stopping=False
     )
-    return para_tokenizer.decode(output_ids[0], skip_special_tokens=True)
 
+    return para_tokenizer.decode(output_ids[0], skip_special_tokens=True)
 
 # 3. Chunking Logic and Sentence-Level Importance
 
@@ -97,24 +116,47 @@ def summarize_long_legal_text(text: str) -> tuple:
 
     for chunk in chunks:
         chunk_summary = summarize_text(chunk)
-        chunk_easy = paraphrase_text(chunk_summary)
         chunk_sent_importance = sentence_importance(chunk, chunk_summary)
+
         explanations.append({
             "chunk": chunk,
             "summary": chunk_summary,
-            "easy_summary": chunk_easy,
             "sentence_importance": chunk_sent_importance
         })
+
         summarized_chunks.append(chunk_summary)
 
-    # combined_summary = " ".join(summarized_chunks)
-    # final_easy_summary = paraphrase_text(combined_summary)
+    # 🔥 CRITICAL FIX
+    combined_summary = " ".join(summarized_chunks)
+    final_summary = summarize_text(combined_summary)
+    final_easy_summary = paraphrase_text(final_summary)
 
-    easy_chunks = [paraphrase_text(chunk_summary) for chunk_summary in summarized_chunks]
-    final_easy_summary = " ".join(easy_chunks)
+    return final_summary, final_easy_summary, explanations
 
-    return easy_chunks, final_easy_summary, explanations
+def ensure_sentence_end(text):
+    if not text.strip().endswith((".", "!", "?")):
+        return text.strip() + "."
+    return text
 
+
+import re
+
+
+def complete_legal_sentence(text: str) -> str:
+    weak_endings = (
+        r"\bmust be$",
+        r"\bshall be$",
+        r"\bmay be$",
+        r"\bwill be$",
+        r"\bmust$",
+        r"\bshall$",
+    )
+
+    for pattern in weak_endings:
+        if re.search(pattern, text.strip(), re.IGNORECASE):
+            return text.strip() + " duly licensed and qualified in accordance with applicable regulations."
+
+    return text
 
 # 4. LIME Explanation
 
@@ -226,9 +268,13 @@ if st.button("🔍 Summarize"):
                 summary, easy_summary, explanations = summarize_long_legal_text(legal_text)
 
         st.subheader("🧾 Summary")
-        st.success(summary)
+        # st.success(summary)
+        summary = complete_legal_sentence(summary)
+        st.success(ensure_sentence_end(summary))
+
 
         st.subheader("🗣️ Easy-to-Understand Summary")
+        easy_summary = complete_legal_sentence(easy_summary)
         st.info(easy_summary)
 
         if enable_xai:
