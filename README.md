@@ -3,15 +3,22 @@ Legal Conten Summarization with Explainable AI
 
 Dataset : 
 
-## How to Run the Application
+## How to Run the Transfer Learning Application
 
 1. Clone the Repository
-2. Activate the Python virtual environment
-3. run the requiremnts.txt file
-4. First Run the data_ext_src.py file. It will create a proper dataset to train the model.
-5. The data_ext_src.py script will create legal_dataset_hf_src.json file
-6. Then run the finetuned-base-model-train.py file to train the model using the prepared data.
-7. The finetuned-base-model-train.py will generate legal-summarizer-final model with best checkpoint.
-8. Then run the xai_app_upd.py file to start the application. (streamlit run xai_app_upd.py)
+2. Go inside the "Transfer learning app" folder
+3. Activate the Python virtual environment
+4. run the requiremnts.txt file
+5. First Run the data_ext_src.py file. It will create a proper dataset to train the model.
+6. The data_ext_src.py script will create legal_dataset_hf_src.json file
+7. Then run the finetuned-base-model-train.py file to train the model using the prepared data.
+8. The finetuned-base-model-train.py will generate legal-summarizer-final model with best checkpoint.
+9. Then run the xai_app_upd.py file to start the application. (streamlit run xai_app_upd.py)
+
+## How to Run the GENAI Application
+1. Clone the Repository
+2. Go inside the "Genai app" folder
+3. 
+
 
 
