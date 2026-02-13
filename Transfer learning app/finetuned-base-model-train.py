@@ -1,4 +1,4 @@
-# 2. TRAIN MODEL (BART-base, fp16)
+# TRAIN MODEL (BART-base, fp16)
 import numpy as np
 import evaluate
 from datasets      import load_dataset
@@ -107,7 +107,7 @@ trainer       = Seq2SeqTrainer(
     compute_metrics=compute_metrics
 )
 
-# OPTIONAL: enable Weights & Biases
+# enable Weights & Biases
 import wandb; wandb.init(project="legal-doc-summarizer-new1", name="bart-base-train")
 
 trainer.train()
@@ -119,3 +119,4 @@ print(f"🏆 Best checkpoint: {best_ckpt}")
 model.save_pretrained("legal-summarizer-final")
 tokenizer.save_pretrained("legal-summarizer-final")
 print("✅ Model + tokenizer saved → legal-summarizer-final/")
+
