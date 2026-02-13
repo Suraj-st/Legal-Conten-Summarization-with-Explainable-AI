@@ -1,114 +1,147 @@
 import numpy as np
 import torch
-import evaluate
 from datasets import load_dataset
 from transformers import (
     BartForConditionalGeneration,
     BartTokenizer,
-    Seq2SeqTrainer,
+    Trainer,
+    # TrainingArguments,
     Seq2SeqTrainingArguments,
     DataCollatorForSeq2Seq,
 )
-import optuna
+import evaluate
+from optuna import Trial
+from transformers import Seq2SeqTrainer
 
-# 1. Load dataset
+# Load dataset (JSON with fields: text, summary)
 
-dataset = load_dataset("json", data_files="legal_dataset_hf.json")
+dataset = load_dataset(
+    "json",
+    data_files={"train": "legal_dataset_hf_src.json"},
+    streaming=False
+)
 
-# Split dataset into train (90%) and validation (10%)
-dataset = dataset["train"].train_test_split(test_size=0.1, seed=42)
-train_dataset = dataset["train"]
-val_dataset = dataset["test"]
+# Load tokenizer & model
+model_name = "facebook/bart-base"
+tokenizer = BartTokenizer.from_pretrained(model_name)
+model = BartForConditionalGeneration.from_pretrained(model_name)
 
+# Preprocess function
+max_input_length = 256 #512
+max_target_length = 64 # 128
 
-# 2. Load tokenizer & model
-
-model_checkpoint = "facebook/bart-base"
-tokenizer = BartTokenizer.from_pretrained(model_checkpoint)
-
-# Tokenization function
 def preprocess_function(examples):
+    inputs = examples["text"]
+    targets = examples["summary"]
+
     model_inputs = tokenizer(
-        examples["text"], max_length=512, truncation=True, padding="max_length"
+        inputs,
+        max_length=max_input_length,
+        truncation=True,
+        padding="max_length"
     )
+
     labels = tokenizer(
-        examples["summary"], max_length=128, truncation=True, padding="max_length"
+        text_target=targets,     
+        max_length=max_target_length,
+        truncation=True,
+        padding="max_length"
     )
+
     model_inputs["labels"] = labels["input_ids"]
     return model_inputs
 
-# Apply preprocessing
-tokenized_datasets = dataset.map(preprocess_function, batched=True, remove_columns=["text", "summary"])
+tokenized_datasets = dataset.map(
+    preprocess_function,
+    batched=True,
+    remove_columns=["text", "summary"],
+    num_proc=4   # 🚀 speed boost
+)
 
+# Data collator
+data_collator = DataCollatorForSeq2Seq(tokenizer, model=model)
 
-# 3. Metric (ROUGE)
-
-rouge = evaluate.load("rouge")
+# Metric
+rouge_metric = evaluate.load("rouge")
 
 def compute_metrics(eval_pred):
     predictions, labels = eval_pred
+
     decoded_preds = tokenizer.batch_decode(predictions, skip_special_tokens=True)
+
     labels = np.where(labels != -100, labels, tokenizer.pad_token_id)
     decoded_labels = tokenizer.batch_decode(labels, skip_special_tokens=True)
 
-    result = rouge.compute(predictions=decoded_preds, references=decoded_labels)
-    # result already returns floats like {"rouge1": 0.32, "rouge2": 0.15, "rougeL": 0.28, ...}
-    return {k: v for k, v in result.items()}
+    result = rouge_metric.compute(
+        predictions=decoded_preds,
+        references=decoded_labels,
+        use_stemmer=True
+    )
 
+    return {
+        "rouge1": result["rouge1"],
+        "rouge2": result["rouge2"],
+        "rougeL": result["rougeL"],
+    }
 
-
-# 4. Hyperparameter tuning with Optuna
-
+# Hyperparameter tuning with Optuna
 def model_init():
-    return BartForConditionalGeneration.from_pretrained(model_checkpoint)
+    return BartForConditionalGeneration.from_pretrained(model_name)
 
-def objective(trial):
-    # Suggest hyperparameters
-    learning_rate = trial.suggest_float("learning_rate", 5e-5, 5e-4, log=True)
-    per_device_train_batch_size = trial.suggest_categorical("per_device_train_batch_size", [2, 4, 8])
-    num_train_epochs = trial.suggest_int("num_train_epochs", 2, 5)
-    weight_decay = trial.suggest_float("weight_decay", 0.01, 0.3)
+def hp_space(trial: Trial):
+    return {
+        "learning_rate": trial.suggest_float("learning_rate", 5e-6, 5e-4, log=True),
+        "num_train_epochs": trial.suggest_int("num_train_epochs", 1, 5),
+        "per_device_train_batch_size": trial.suggest_categorical("per_device_train_batch_size", [4, 8, 16]),
+        "per_device_eval_batch_size": trial.suggest_categorical("per_device_eval_batch_size", [4, 8, 16]),
+        "weight_decay": trial.suggest_float("weight_decay", 0.01, 0.3),
+        "warmup_steps": trial.suggest_int("warmup_steps", 0, 500),
+    }
 
-    # Training arguments
-    training_args = Seq2SeqTrainingArguments(
-        output_dir="./results",
-        evaluation_strategy="epoch",
-        save_strategy="epoch",
-        learning_rate=learning_rate,
-        per_device_train_batch_size=per_device_train_batch_size,
-        per_device_eval_batch_size=per_device_train_batch_size,
-        num_train_epochs=num_train_epochs,
-        weight_decay=weight_decay,
-        fp16=torch.cuda.is_available(),
-        predict_with_generate=True,
-        logging_dir="./logs",
-        logging_steps=50,
-        report_to="none",
-    )
+training_args = Seq2SeqTrainingArguments(
+    output_dir="./bart-finetuned-legal",
 
-    # Trainer
-    trainer = Seq2SeqTrainer(
-        model_init=model_init,
-        args=training_args,
-        train_dataset=tokenized_datasets["train"],
-        eval_dataset=tokenized_datasets["test"],
-        tokenizer=tokenizer,
-        data_collator=DataCollatorForSeq2Seq(tokenizer, model=None),
-        compute_metrics=compute_metrics,
-    )
+    eval_strategy="epoch",
+    save_strategy="epoch",
+    logging_steps=50,
 
-    trainer.train()
+    per_device_train_batch_size=2,
+    per_device_eval_batch_size=1,
+    gradient_accumulation_steps=8,
 
-    eval_results = trainer.evaluate()
-    return eval_results["eval_rougeL"]
+    eval_accumulation_steps=1,
 
+    predict_with_generate=True,   
 
-# 5. Run Optuna study
+    bf16=torch.cuda.is_available(),
+    fp16=False,
 
-study = optuna.create_study(direction="maximize")
-study.optimize(objective, n_trials=5)
+    save_total_limit=2,
+    load_best_model_at_end=True,
+    metric_for_best_model="rouge1",
+)
 
-print("Best trial:")
-trial = study.best_trial
-print(f"  RougeL: {trial.value}")
-print("  Best hyperparameters:", trial.params)
+train_dataset = tokenized_datasets["train"].shuffle(seed=42).select(range(2000))
+eval_dataset  = tokenized_datasets["train"].shuffle(seed=123).select(range(500))
+
+trainer = Seq2SeqTrainer(
+    model_init=model_init,
+    args=training_args,
+    train_dataset=train_dataset,
+    eval_dataset=eval_dataset,
+    tokenizer=tokenizer,
+    data_collator=data_collator,
+    compute_metrics=compute_metrics,
+)
+
+# Run hyperparameter search
+best_run = trainer.hyperparameter_search(
+    direction="maximize",
+    backend="optuna",
+    hp_space=hp_space,
+    n_trials=10  # increase for better results
+)
+# enable Weights & Biases
+import wandb; wandb.init(project="legal-doc-summarizer-hptune", name="bart-base-train")
+
+print("Best hyperparameters:", best_run.hyperparameters)
